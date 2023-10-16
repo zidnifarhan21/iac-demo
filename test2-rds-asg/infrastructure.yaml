@@ -1,0 +1,431 @@
+Parameters:
+
+  Environment:
+    Type: String
+    Default: Production
+  VPCCIDR:
+    Description: CIDR for VPC
+    Type: String
+    Default: 10.0.0.0/20
+  PubSubCIDR:
+    Description: CIDR for Public Subnet
+    Type: String
+    Default: 10.0.0.0/24
+  PrivSub1CIDR:
+    Description: CIDR for Private Subnet 1
+    Type: String
+    Default: 10.0.1.0/24
+  PrivSub2CIDR:
+    Description: CIDR for Private Subnet 2
+    Type: String
+    Default: 10.0.2.0/24
+
+  ImageID:
+    Description: AMI ID for AutoScaling Group Launch Template
+    Type: String
+    Default: ami-03a6eaae9938c858c
+  Keypair:
+    Description: Select keypair for AutoScalingGroup Instance
+    Type: AWS::EC2::KeyPair::KeyName
+
+  DBInstanceID:
+    Default: mydbinstance
+    Description: Name for your Database instance
+    Type: String
+    MinLength: '1'
+    MaxLength: '63'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: >-
+      Must begin with a letter and must not end with a hyphen or contain two
+      consecutive hyphens.
+  DBName:
+    Default: mydb
+    Description: Name for your Database
+    Type: String
+    MinLength: '1'
+    MaxLength: '64'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters.
+  DBInstanceClass:
+    Default: db.t3.micro
+    Description: Define your Database Instance Class
+    Type: String
+    ConstraintDescription: Must select a valid DB instance type.
+  DBAllocatedStorage:
+    Default: '20'
+    Description: The size of the database (GiB)
+    Type: Number
+    MinValue: '20'
+    MaxValue: '65536'
+    ConstraintDescription: must be between 20 and 65536 GiB.
+  DBUsername:
+    # NoEcho: 'true'
+    Description: Username for MySQL database access
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  DBPassword:
+    NoEcho: 'true'
+    Description: Password MySQL database access
+    Type: String
+    MinLength: '8'
+    MaxLength: '41'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: must contain only alphanumeric characters.
+  
+  BucketName:
+    Description: Name for S3 Bucket (No Capital Character)
+    Type: String
+Resources:
+
+  MyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key : Name
+          Value: 
+            !Sub 'VPC-${Environment}'
+
+  #### Public Subnet ####
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: MyVPC
+      CidrBlock: !Ref PubSubCIDR
+      AvailabilityZone: us-east-1a
+      Tags:
+        - Key : Name
+          Value: !Sub '${Environment} Public Subnet'
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: MyVPC
+      InternetGatewayId:
+        Ref: InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: MyVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment} Public Route Table'
+
+  PublicRouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: 
+        Ref: PublicRouteTable
+      SubnetId: 
+        Ref: PublicSubnet
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId:
+        Ref: PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: InternetGateway
+
+  NatGatewayEIP:
+    Type: AWS::EC2::EIP
+  
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+          - NatGatewayEIP
+          - AllocationId
+      SubnetId:
+        Ref: PublicSubnet
+
+  #### Private Subnet 1 ####
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: MyVPC
+      CidrBlock: !Ref PrivSub1CIDR
+      AvailabilityZone: us-east-1a
+      Tags:
+        - Key : Name
+          Value: !Sub '${Environment} Private Subnet 1'
+
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: MyVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment} Private Route Table 1'
+
+  Private1RouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: 
+        Ref: PrivateRouteTable1
+      SubnetId: 
+        Ref: PrivateSubnet1
+
+  PrivateRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId:
+        Ref: PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId:
+        Ref: NatGateway
+  
+
+  #### Private Subnet 2 ####
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: MyVPC
+      CidrBlock: !Ref PrivSub2CIDR
+      AvailabilityZone: us-east-1b
+      Tags:
+        - Key : Name
+          Value: !Sub '${Environment} Private Subnet 2'
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: MyVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment} Private Route Table 2'
+
+  Private2RouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: 
+        Ref: PrivateRouteTable2
+      SubnetId: 
+        Ref: PrivateSubnet2
+
+  PrivateRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId:
+        Ref: PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId:
+        Ref: NatGateway
+
+#### Database ####
+
+  MyDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties: 
+      DBSubnetGroupDescription: !Sub 'SubnetGroup for ${Environment}'
+      DBSubnetGroupName: !Sub '${Environment}-SubnetGroup'
+      SubnetIds: 
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-SubnetGroup'
+  MyDB:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBInstanceIdentifier: !Ref DBInstanceID
+      DBName: !Ref DBName
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      DBSubnetGroupName: !Ref MyDBSubnetGroup
+      Engine: MySQL
+      EngineVersion: "8.0.33"
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      VPCSecurityGroups: 
+        - !Ref DatabaseSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-RDS'
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow DB Connection
+      VpcId: 
+        !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub 'Security Group ${Environment} Server' 
+
+#### Compute ####
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow https
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub 'Security Group ${Environment} Server'
+
+  MyLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties: 
+      LaunchTemplateName: !Sub '${Environment}-launch-template'
+      LaunchTemplateData: 
+        BlockDeviceMappings: 
+          - Ebs:
+              VolumeSize: 22
+              VolumeType: gp2
+              DeleteOnTermination: true
+              Encrypted: true
+            DeviceName: /dev/xvdcz
+        CreditSpecification: 
+          CpuCredits: Unlimited
+        Monitoring: 
+          Enabled: true
+        ImageId: ami-03a6eaae9938c858c
+        InstanceType: t2.micro
+        SecurityGroupIds: 
+          - !GetAtt "InstanceSecurityGroup.GroupId"
+        KeyName: devops
+        UserData:
+          Fn::Base64:
+            Fn::Sub: |
+              #!/bin/bash
+              touch ~/test-user-data.txt
+
+  MyLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets: 
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      SecurityGroups: 
+        - !GetAtt "InstanceSecurityGroup.GroupId"
+      Scheme: internet-facing
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: '120'
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-LoadBalancer'
+
+  MyTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      VpcId: !Ref MyVPC
+
+  MyAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AvailabilityZones:
+        - us-east-1a
+        - us-east-1b
+      LaunchTemplate:
+        LaunchTemplateId: !Ref MyLaunchTemplate
+        Version: !GetAtt MyLaunchTemplate.LatestVersionNumber
+      MinSize: 2
+      MaxSize: 4
+      DesiredCapacity: 2
+      TargetGroupARNs:
+        - !Ref MyTargetGroup
+      VPCZoneIdentifier:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-ScalingGroup'
+          PropagateAtLaunch: True
+
+#### S3 Bucket ####
+  MyBucket:
+    Type: AWS::S3::Bucket
+    Properties: 
+      BucketName: !Sub '${BucketName}-${AWS::AccountId}'
+      OwnershipControls: 
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+
+Outputs:
+  VPCId:
+    Value:
+      Ref: MyVPC
+    Export:
+      Name:
+        'Fn::Sub': '${AWS::StackName}-MyVPCId'
+
+  PublicSubnetId:
+    Value:
+      Ref: PublicSubnet
+    Export:
+      Name: 
+        'Fn::Sub': '${AWS::StackName}-PublicSubnetId'
+
+  PrivateSubnet1Id:
+    Value:
+      Ref: PrivateSubnet1
+    Export:
+      Name:
+        'Fn::Sub': '${AWS::StackName}-PrivateSubnet1Id'
+
+  PrivateSubnet2Id:
+    Value:
+      Ref: PrivateSubnet2
+    Export:
+      Name:
+        'Fn::Sub': '${AWS::StackName}-PrivateSubnet2Id'
+
+  RDSEndpoint:
+    Value:
+      !GetAtt MyDB.Endpoint.Address
+    Export:
+      Name:
+        'Fn::Sub': '${AWS::StackName}-RDSEndpoint' 

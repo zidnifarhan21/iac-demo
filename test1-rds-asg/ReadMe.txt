@@ -1,0 +1,1 @@
+Ini masih individual stack, each stack belum bisa di buat satu main template

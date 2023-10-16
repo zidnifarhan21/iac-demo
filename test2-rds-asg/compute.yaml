@@ -1,0 +1,125 @@
+Parameters:
+  NetworkStackName:
+    Type: String
+    Default: network
+  Environment:
+    Type: String
+    Default: Production
+  
+Resources:
+  # MyLaunchConfig:
+  #   Type: AWS::AutoScaling::LaunchConfiguration
+  #   Properties:
+  #     ImageId: ami-03a6eaae9938c858c 
+  #     InstanceType: t2.micro
+  #     SecurityGroups: 
+  #       - !GetAtt "InstanceSecurityGroup.GroupId"
+  #     UserData:
+  #       Fn::Base64:
+  #         Fn::Sub: |
+  #           #!/bin/bash
+  #           # Insert your GitHub repo clone commands here
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow https
+      VpcId: 
+        Fn::ImportValue:
+          !Sub '${NetworkStackName}-MyVPCId'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: Security Group Server
+
+  MyLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties: 
+      LaunchTemplateName: !Sub '${AWS::StackName}-launch-template'
+      LaunchTemplateData: 
+        BlockDeviceMappings: 
+          - Ebs:
+              VolumeSize: 22
+              VolumeType: gp2
+              DeleteOnTermination: true
+              Encrypted: true
+            DeviceName: /dev/xvdcz
+        CreditSpecification: 
+          CpuCredits: Unlimited
+        Monitoring: 
+          Enabled: true
+        ImageId: ami-03a6eaae9938c858c
+        InstanceType: t2.micro
+        SecurityGroupIds: 
+          - !GetAtt "InstanceSecurityGroup.GroupId"
+        KeyName: devops
+        UserData:
+          Fn::Base64:
+            Fn::Sub: |
+              #!/bin/bash
+              adsfawefawe
+
+  MyLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets: 
+        - Fn::ImportValue:
+            !Sub '${NetworkStackName}-PrivateSubnet1Id'
+        - Fn::ImportValue:
+            !Sub '${NetworkStackName}-PrivateSubnet2Id'
+      SecurityGroups: 
+        - !GetAtt "InstanceSecurityGroup.GroupId"
+      Scheme: internet-facing
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: '60'
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-LoadBalancer'
+
+  MyTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      VpcId: 
+        Fn::ImportValue:
+          !Sub '${NetworkStackName}-MyVPCId'
+
+  MyAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AvailabilityZones:
+        - us-east-1a
+        - us-east-1b
+      LaunchTemplate:
+        LaunchTemplateId: !Ref MyLaunchTemplate
+        Version: !GetAtt MyLaunchTemplate.LatestVersionNumber
+      MinSize: 2
+      MaxSize: 4
+      DesiredCapacity: 2
+      TargetGroupARNs:
+        - !Ref MyTargetGroup
+      VPCZoneIdentifier:
+        - Fn::ImportValue:
+            !Sub '${NetworkStackName}-PrivateSubnet1Id'
+        - Fn::ImportValue:
+            !Sub '${NetworkStackName}-PrivateSubnet2Id'
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-ScalingGroup'
+          PropagateAtLaunch: True
+

@@ -1,0 +1,16 @@
+Parameters:
+  Environment:
+    Type: String
+    Default: Production
+  BucketName:
+    Type: String
+    Default: Bucketnamehere
+
+Resources:
+  MyBucket:
+    Type: AWS::S3::Bucket
+    Properties: 
+      BucketName: !Sub '${BucketName}-${AWS::Region}-${AWS::AccountId}'
+      OwnershipControls: 
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
